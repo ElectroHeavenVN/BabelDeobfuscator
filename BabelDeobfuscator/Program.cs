@@ -63,6 +63,7 @@ namespace BabelDeobfuscator
                 new ProxyDelegatePhase().Run(module, assembly);
                 new ConstantPhase().Run(module, assembly);
                 new StringPhase().Run(module, assembly);
+                new ControlFlowPhase().Run(module, assembly);
             }
             catch (Exception ex)
             {
