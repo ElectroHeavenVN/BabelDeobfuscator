@@ -110,10 +110,11 @@ namespace BabelDeobfuscator
                             privateImplementationDetails.Fields.Add(fieldContainsDecryptedArray);
                             module.UpdateRowId(fieldContainsDecryptedArray);
                             encryptedArrayDataInstruction.Operand = fieldContainsDecryptedArray;
+                            method.Body.Instructions[j - 5].OpCode = OpCodes.Ldc_I4;
+                            method.Body.Instructions[j - 5].Operand = decryptedArray.Length;
+                            method.Body.Instructions[j - 4].Operand = ((TypeSpec)method.Body.Instructions[j + 1].Operand).ScopeType;
                             method.Body.Instructions.RemoveAt(j + 1);
                             method.Body.Instructions.RemoveAt(j);
-                            method.Body.Instructions[j - 5].OpCode = OpCodes.Ldc_I4;
-                            method.Body.Instructions[j - 5].Operand = (int)structSize;
                         }
                     }
                 }
