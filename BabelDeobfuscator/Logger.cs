@@ -69,9 +69,15 @@ namespace BabelDeobfuscator
         internal static string EscapeString(string str)
         {
             string result = "";
-            foreach (char c in str)
+            for (int i = 0; i < str.Length; i++)
             {
-                if (c < 32 || c > 126)
+                char c = str[i];
+                if (i < str.Length - 1 && c == '\r' && str[i + 1] == '\n')
+                {
+                    result += Environment.NewLine;
+                    i++;
+                }
+                else if (c < 32 || c > 126)
                     result += "\\u" + Convert.ToString(c, 16).PadLeft(4, '0').ToUpper();
                 else result += c;
             }

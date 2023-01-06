@@ -127,6 +127,10 @@ namespace BabelDeobfuscator
 
         bool isProxyIntSwitch(MethodDef currentMethod)
         {
+            if (currentMethod.Parameters.Count != 1)
+                return false;
+            if (!currentMethod.Parameters[0].Type.FullName.Contains("System.Int32"))
+                return false;
             int switchCount = 0;
             foreach (Instruction instruction in currentMethod.Body.Instructions)
             {
@@ -135,7 +139,7 @@ namespace BabelDeobfuscator
                 if (instruction.OpCode == OpCodes.Switch)
                     switchCount++;
             }
-            if (switchCount != 1)
+            if (switchCount < 1)
                 return false;
             if (!obfuscatorGeneratedMembers.Contains(currentMethod))
                 obfuscatorGeneratedMembers.Add(currentMethod);
@@ -177,7 +181,7 @@ namespace BabelDeobfuscator
                                 module.UpdateRowId(privateImplementationDetails);
                             }
                             Type t = decryptedArray.GetType().GetElementType();
-                            uint structSize = (uint)(decryptedArray.Length * Marshal.SizeOf(t));
+                            uint structSize = (uint)(decryptedArray.Length * SizeOf(t));
                             TypeDef decryptedStaticArrayInitType = null;
                             foreach (TypeDef staticArrayInitType in privateImplementationDetails.NestedTypes)
                             {
@@ -233,32 +237,39 @@ namespace BabelDeobfuscator
                 IEnumerable<TypeDef> types = currentModule.GetTypes();
                 for (int i = 0; i < types.Count(); i++) 
                 {
-                    TypeDef type = types.ElementAt(i);
-                    foreach (MethodDef method in type.Methods)
+                    try
                     {
-                        if (!method.HasBody || !method.Body.HasInstructions)
-                            continue;
-                        if (isProxyIntSwitch(method))
-                            continue;
-                        method.Body.SimplifyBranches();
-                        method.Body.SimplifyMacros(method.Parameters);
-                        for (int j = method.Body.Instructions.Count - 1; j >= 1; j--)
+                        TypeDef type = types.ElementAt(i);
+                        foreach (MethodDef method in type.Methods)
                         {
-                            if (method.Body.Instructions[j].OpCode == OpCodes.Call && method.Body.Instructions[j].Operand is MethodDef)
+                            if (!method.HasBody || !method.Body.HasInstructions)
+                                continue;
+                            if (isProxyIntSwitch(method))
+                                continue;
+                            method.Body.SimplifyBranches();
+                            method.Body.SimplifyMacros(method.Parameters);
+                            for (int j = method.Body.Instructions.Count - 1; j >= 1; j--)
                             {
-                                MethodDef decryptorMethod = method.Body.Instructions[j].Operand as MethodDef;
-                                Instruction parameterInstruction = method.Body.Instructions[j - 1];
-                                if (GetProxiedConstant(assembly, decryptorMethod, parameterInstruction, out object decryptedConstant) || DecryptConstant(assembly, decryptorMethod, parameterInstruction, out decryptedConstant))
+                                if (method.Body.Instructions[j].OpCode == OpCodes.Call && method.Body.Instructions[j].Operand is MethodDef)
                                 {
-                                    parameterInstruction.OpCode = GetOpcode(decryptedConstant);
-                                    parameterInstruction.Operand = decryptedConstant;
-                                    method.Body.Instructions.RemoveAt(j);
-                                    decryptedConstantsCount++;
+                                    MethodDef decryptorMethod = method.Body.Instructions[j].Operand as MethodDef;
+                                    Instruction parameterInstruction = method.Body.Instructions[j - 1];
+                                    if (GetProxiedConstant(assembly, decryptorMethod, parameterInstruction, out object decryptedConstant) || DecryptConstant(assembly, decryptorMethod, parameterInstruction, out decryptedConstant))
+                                    {
+                                        parameterInstruction.OpCode = GetOpcode(decryptedConstant);
+                                        parameterInstruction.Operand = decryptedConstant;
+                                        method.Body.Instructions.RemoveAt(j);
+                                        decryptedConstantsCount++;
+                                    }
                                 }
                             }
+                            method.Body.OptimizeBranches();
+                            method.Body.OptimizeMacros();
                         }
-                        method.Body.OptimizeBranches();
-                        method.Body.OptimizeMacros();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogException(ex);
                     }
                 }
             }
@@ -268,12 +279,14 @@ namespace BabelDeobfuscator
         private bool GetProxiedConstant(Assembly assembly, MethodDef decryptorMethod, Instruction parameterInstruction, out object decryptedConstant)
         {
             decryptedConstant = default;
+            if (!decryptorMethod.HasBody || !decryptorMethod.Body.HasInstructions)
+                return false;
             if (!isProxyIntSwitch(decryptorMethod))
                 return false;
             decryptedConstant = assembly.ManifestModule.ResolveMethod(decryptorMethod.MDToken.ToInt32()).Invoke(null, new object[]
-               {
-                    parameterInstruction.GetOperand()
-               });
+                {
+                parameterInstruction.GetOperand()
+                });
             return true;
         }
 
@@ -371,60 +384,28 @@ namespace BabelDeobfuscator
             return result;
         }
 
-        static byte[] CastToByteArray(Array array)
+        static unsafe byte[] CastToByteArray(Array array)
         {
             Type t = array.GetType().GetElementType();
-            int sizeOfElementType = Marshal.SizeOf(t);
-            List<byte> result = new List<byte>(array.Length * sizeOfElementType);
+            int sizeOfElementType = SizeOf(t);
+            byte[] result = new byte[array.Length * sizeOfElementType];
             for (int i = 0; i < array.Length; i++)
             {
-                if (sizeOfElementType == 1)
-                {
-                    try
-                    {
-                        result.Add((byte)(sbyte)array.GetValue(i));
-                    }
-                    catch (InvalidCastException)
-                    {
-                        result.Add((byte)array.GetValue(i));
-                    }
-                }
-                else if (sizeOfElementType == 2)
-                {
-                    try
-                    {
-                        result.AddRange(BitConverter.GetBytes((short)array.GetValue(i)));
-                    }
-                    catch (InvalidCastException)
-                    {
-                        result.AddRange(BitConverter.GetBytes((ushort)array.GetValue(i)));
-                    }
-                }
-                else if (sizeOfElementType == 4)
-                {
-                    try
-                    {
-                        result.AddRange(BitConverter.GetBytes((int)array.GetValue(i)));
-                    }
-                    catch (InvalidCastException)
-                    {
-                        result.AddRange(BitConverter.GetBytes((uint)array.GetValue(i)));
-                    }
-                }
-                else if (sizeOfElementType == 8)
-                {
-                    try
-                    {
-                        result.AddRange(BitConverter.GetBytes((long)array.GetValue(i)));
-                    }
-                    catch (InvalidCastException)
-                    {
-                        result.AddRange(BitConverter.GetBytes((ulong)array.GetValue(i)));
-                    }
-                }
-                else throw new NotSupportedException($"Array of type {t} is not supported!");
+                IntPtr p = new IntPtr(&array);
+                IntPtr ptr = Marshal.ReadIntPtr(p) + 8;
+                Marshal.Copy(ptr, result, 0, result.Length);
             }
-            return result.ToArray();
+            return result;
+        }
+
+        static int SizeOf(Type t)
+        {
+            System.Reflection.Emit.DynamicMethod dynamicMethod = new System.Reflection.Emit.DynamicMethod("sizeof", typeof(int),
+                                       Type.EmptyTypes);
+            System.Reflection.Emit.ILGenerator ilGen = dynamicMethod.GetILGenerator();
+            ilGen.Emit(System.Reflection.Emit.OpCodes.Sizeof, t);
+            ilGen.Emit(System.Reflection.Emit.OpCodes.Ret);
+            return (int)dynamicMethod.Invoke(null, null);
         }
     }
 }

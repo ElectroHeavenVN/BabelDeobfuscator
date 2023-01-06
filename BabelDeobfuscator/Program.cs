@@ -83,6 +83,10 @@ namespace BabelDeobfuscator
             {
                 module.Write(path, moduleWriterOptions);
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                Logger.LogException(ex);
+            }
             catch (Exception ex)
             {
                 Logger.LogException(ex);
