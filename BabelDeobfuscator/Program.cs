@@ -17,12 +17,13 @@ namespace BabelDeobfuscator
             string filePath;
             if (args.Length == 0)
             {
+                Logger.LogInfo("Use -v / --v / /v to turn on verbose mode.");
                 Console.Write("File path: ");
                 filePath = Console.ReadLine().Replace("\"", "");
                 if (!File.Exists(filePath))
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"File {filePath} not found!");
+                    Logger.LogError($"File {filePath} not found!");
                 }
                 else
                     Deobfuscate(filePath);
@@ -31,7 +32,10 @@ namespace BabelDeobfuscator
                 foreach (string arg in args)
                 {
                     if ((arg.StartsWith("-") || arg.StartsWith("--") || arg.StartsWith("/")) && (arg[arg.Length - 1] == 'V' || arg[arg.Length - 1] == 'v'))
+                    {
+                        Logger.LogInfo("Verbose mode: enabled");
                         Logger.isVerbose = true;
+                    }
                 }
             foreach (string arg in args)
             {
