@@ -13,7 +13,89 @@ namespace BabelDeobfuscator
     {
         int decryptedStringCount;
 
+        List<IMemberDef> obfuscatorGeneratedMembers = new List<IMemberDef>();
+
         public void Run(ModuleDefMD module, Assembly assembly)
+        {
+            DecryptString(module, assembly);
+            RemoveObfuscatorGeneratedMembers(module);
+        }
+
+        private void RemoveObfuscatorGeneratedMembers(ModuleDefMD module)
+        {
+            foreach (MethodDef method in obfuscatorGeneratedMembers.OfType<MethodDef>())
+            {
+                bool isDelete = true;
+                foreach (TypeDef type in module.GetTypes())
+                {
+                    foreach (MethodDef methodDef in type.Methods)
+                    {
+                        if (methodDef == method)
+                            continue;
+                        if (!method.HasBody || !method.Body.HasInstructions)
+                            continue;
+                        foreach (Instruction instruction in method.Body.Instructions.Where(i => i.OpCode.OperandType == OperandType.InlineMethod || i.OpCode.OperandType == OperandType.InlineTok))
+                        {
+                            if (instruction.Operand == method)
+                            {
+                                isDelete = false;
+                                break;
+                            }
+                        }
+                        if (!isDelete)
+                            break;
+                    }
+                    if (!isDelete)
+                        break;
+                }
+                if (isDelete)
+                {
+                    Logger.LogVerbose($"Deleting obfuscator generated method: {method.FullName} [0x{method.MDToken}]...");
+                    method.DeclaringType.Methods.Remove(method);
+                }
+            }
+            foreach (TypeDef type in obfuscatorGeneratedMembers.OfType<TypeDef>())
+            {
+                bool isDelete = true;
+                foreach (MethodDef method in type.Methods)
+                {
+                    foreach (TypeDef typeDef in module.GetTypes())
+                    {
+                        if (typeDef == type)
+                            continue;
+                        foreach (MethodDef methodDef in type.Methods)
+                        {
+                            if (!method.HasBody || !method.Body.HasInstructions)
+                                continue;
+                            foreach (Instruction instruction in method.Body.Instructions.Where(i => i.OpCode.OperandType == OperandType.InlineMethod || i.OpCode.OperandType == OperandType.InlineTok))
+                            {
+                                if (instruction.Operand == method)
+                                {
+                                    isDelete = false;
+                                    break;
+                                }
+                            }
+                            if (!isDelete)
+                                break;
+                        }
+                        if (!isDelete)
+                            break;
+                    }
+                    if (!isDelete)
+                        break;
+                }
+                if (isDelete)
+                {
+                    Logger.LogVerbose($"Deleting obfuscator generated type: {type.FullName} [0x{type.MDToken}]...");
+                    if (type.IsNested)
+                        type.DeclaringType.NestedTypes.Remove(type);
+                    else
+                        module.Types.Remove(type);
+                }
+            }
+        }
+
+        private void DecryptString(ModuleDefMD module, Assembly assembly)
         {
             do
             {
@@ -40,6 +122,10 @@ namespace BabelDeobfuscator
                                         value
                                     });
                                     method.Body.Instructions.RemoveAt(i);
+                                    if (!obfuscatorGeneratedMembers.Contains(stringDecryptorMethod))
+                                        obfuscatorGeneratedMembers.Add(stringDecryptorMethod);
+                                    if (!obfuscatorGeneratedMembers.Contains(stringDecryptorMethod.DeclaringType))
+                                        obfuscatorGeneratedMembers.Add(stringDecryptorMethod.DeclaringType);
                                     decryptedStringCount++;
                                 }
                             }

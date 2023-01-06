@@ -13,10 +13,9 @@ namespace BabelDeobfuscator
 {
     internal class ControlFlowPhase : IDeobfuscatePhase
     {
-        static readonly BlocksCflowDeobfuscator blocksCflowDeobfuscator = new BlocksCflowDeobfuscator();
-
         public void Run(ModuleDefMD module, Assembly assembly)
         {
+            Logger.LogInfo("Cleaning control flow...");
             foreach (TypeDef type in module.GetTypes())
             {
                 foreach (MethodDef method in type.Methods)
@@ -26,6 +25,7 @@ namespace BabelDeobfuscator
                     try
                     {
                         Blocks blocks = new Blocks(method);
+                        BlocksCflowDeobfuscator blocksCflowDeobfuscator = new BlocksCflowDeobfuscator();
                         blocksCflowDeobfuscator.Initialize(blocks);
                         blocksCflowDeobfuscator.Deobfuscate();
                         blocks.RepartitionBlocks();

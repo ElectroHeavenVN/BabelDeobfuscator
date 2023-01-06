@@ -21,11 +21,108 @@ namespace BabelDeobfuscator
 
         int decryptedConstantsCount;
 
+        List<IMemberDef> obfuscatorGeneratedMembers = new List<IMemberDef>();
+
         public void Run(ModuleDefMD module, Assembly assembly)
         {
+            Logger.LogInfo("Decrypting constants...");
             currentModule = module;
-            DecryptConstant(module, assembly);
+            FindPrivateImplementationDetails(module);
+            DecryptConstant(assembly);
             DecryptArray(module, assembly);
+            DeleteObfuscatorGeneratedMembers(module);
+        }
+
+        private void FindPrivateImplementationDetails(ModuleDefMD module)
+        {
+            if (module.Find("<PrivateImplementationDetails>", false) != null)
+                return;
+            IEnumerable<TypeDef> types = module.Types.Where(t => t != module.GlobalType && t.CustomAttributes.Count == 1 && t.CustomAttributes[0].TypeFullName.Contains("System.Runtime.CompilerServices.CompilerGeneratedAttribute") && t.NestedTypes.Count > 0);
+            if (types.Count() > 0)
+            {
+                types.ElementAt(0).Namespace = "";
+                types.ElementAt(0).Name = "<PrivateImplementationDetails>";
+                if (types.ElementAt(0).HasMethods && types.ElementAt(0).Methods[0].ReturnType.FullName.Contains("System.UInt32") && types.ElementAt(0).Methods[0].Parameters[0].Type.FullName.Contains("System.String"))
+                {
+                    types.ElementAt(0).Methods[0].Name = "ComputeStringHash";
+                    types.ElementAt(0).Methods[0].Parameters[0].Name = "s";
+                }
+                   
+            }
+        }
+
+        private void DeleteObfuscatorGeneratedMembers(ModuleDefMD module)
+        {
+            foreach (MethodDef method in obfuscatorGeneratedMembers.OfType<MethodDef>())
+            {
+                bool isDelete = true;
+                foreach (TypeDef type in module.GetTypes())
+                {
+                    foreach (MethodDef methodDef in type.Methods)
+                    {
+                        if (methodDef == method)
+                            continue;
+                        if (!method.HasBody || !method.Body.HasInstructions)
+                            continue;
+                        foreach (Instruction instruction in method.Body.Instructions.Where(i => i.OpCode.OperandType == OperandType.InlineMethod || i.OpCode.OperandType == OperandType.InlineTok))
+                        {
+                            if (instruction.Operand == method)
+                            {
+                                isDelete = false;
+                                break;
+                            }
+                        }
+                        if (!isDelete)
+                            break;
+                    }
+                    if (!isDelete)
+                        break;
+                }
+                if (isDelete)
+                {
+                    Logger.LogVerbose($"Deleting obfuscator generated method: {method.FullName} [0x{method.MDToken}]...");
+                    method.DeclaringType.Methods.Remove(method);
+                }
+            }
+            foreach (TypeDef type in obfuscatorGeneratedMembers.OfType<TypeDef>())
+            {
+                bool isDelete = true;
+                foreach (MethodDef method in type.Methods)
+                {
+                    foreach (TypeDef typeDef in module.GetTypes())
+                    {
+                        if (typeDef == type)
+                            continue;
+                        foreach (MethodDef methodDef in type.Methods)
+                        {
+                            if (!method.HasBody || !method.Body.HasInstructions)
+                                continue;
+                            foreach (Instruction instruction in method.Body.Instructions.Where(i => i.OpCode.OperandType == OperandType.InlineMethod || i.OpCode.OperandType == OperandType.InlineTok))
+                            {
+                                if (instruction.Operand == method)
+                                {
+                                    isDelete = false;
+                                    break;
+                                }
+                            }
+                            if (!isDelete)
+                                break;
+                        }
+                        if (!isDelete)
+                            break;
+                    }
+                    if (!isDelete)
+                        break;
+                }
+                if (isDelete)
+                {
+                    Logger.LogVerbose($"Deleting obfuscator generated type: {type.FullName} [0x{type.MDToken}]...");
+                    if (type.IsNested)
+                        type.DeclaringType.NestedTypes.Remove(type);
+                    else
+                        module.Types.Remove(type);
+                }
+            }
         }
 
         bool isProxyIntSwitch(MethodDef currentMethod)
@@ -40,6 +137,8 @@ namespace BabelDeobfuscator
             }
             if (switchCount != 1)
                 return false;
+            if (!obfuscatorGeneratedMembers.Contains(currentMethod))
+                obfuscatorGeneratedMembers.Add(currentMethod);
             return true;
         }
 
@@ -65,10 +164,12 @@ namespace BabelDeobfuscator
                             TypeDef privateImplementationDetails = module.Find("<PrivateImplementationDetails>", false);
                             if (privateImplementationDetails == null)
                             {
-                                privateImplementationDetails = new TypeDefUser("<PrivateImplementationDetails>");
-                                privateImplementationDetails.IsSealed = true;
+                                privateImplementationDetails = new TypeDefUser("<PrivateImplementationDetails>")
+                                {
+                                    IsSealed = true,
+                                    BaseType = new TypeRefUser(module, "System", "Object", module.CorLibTypes.AssemblyRef)
+                                };
                                 privateImplementationDetails.Attributes |= dnlib.DotNet.TypeAttributes.NotPublic;
-                                privateImplementationDetails.BaseType = new TypeRefUser(module, "System", "Object", module.CorLibTypes.AssemblyRef);
                                 TypeRef compilerGeneratedAttributeType = new TypeRefUser(module, "System.Runtime.CompilerServices", "CompilerGeneratedAttribute", module.CorLibTypes.AssemblyRef);
                                 MethodSig compilerGeneratedAttributeSig = MethodSig.CreateInstance(module.CorLibTypes.Void);
                                 privateImplementationDetails.CustomAttributes.Add(new CustomAttribute(new MemberRefUser(module, ".ctor", compilerGeneratedAttributeSig, compilerGeneratedAttributeType)));
@@ -92,21 +193,24 @@ namespace BabelDeobfuscator
                             }
                             if (decryptedStaticArrayInitType == null)
                             {
-                                decryptedStaticArrayInitType = new TypeDefUser($"__StaticArrayInitTypeSize={structSize}", new TypeRefUser(module, "System", "ValueType", module.CorLibTypes.AssemblyRef));
-                                decryptedStaticArrayInitType.PackingSize = 1;
-                                decryptedStaticArrayInitType.Layout = dnlib.DotNet.TypeAttributes.ExplicitLayout;
-                                decryptedStaticArrayInitType.ClassSize = structSize;
-                                decryptedStaticArrayInitType.IsSealed = true;
-                                decryptedStaticArrayInitType.Attributes |= dnlib.DotNet.TypeAttributes.NotPublic;
+                                decryptedStaticArrayInitType = new TypeDefUser($"__StaticArrayInitTypeSize={structSize}", new TypeRefUser(module, "System", "ValueType", module.CorLibTypes.AssemblyRef))
+                                {
+                                    PackingSize = 1,
+                                    Layout = dnlib.DotNet.TypeAttributes.ExplicitLayout,
+                                    ClassSize = structSize,
+                                    IsSealed = true
+                                };
                                 privateImplementationDetails.NestedTypes.Add(decryptedStaticArrayInitType);
                                 module.UpdateRowId(decryptedStaticArrayInitType);
                             }
-                            FieldDef fieldContainsDecryptedArray = new FieldDefUser(randomName(), new FieldSig(decryptedStaticArrayInitType.ToTypeSig()));
-                            fieldContainsDecryptedArray.IsStatic = true;
+                            FieldDef fieldContainsDecryptedArray = new FieldDefUser(randomName(), new FieldSig(decryptedStaticArrayInitType.ToTypeSig()))
+                            {
+                                IsStatic = true,
+                                IsInitOnly = true,
+                                HasFieldRVA = true,
+                                InitialValue = CastToByteArray(decryptedArray)
+                            };
                             fieldContainsDecryptedArray.Attributes |= dnlib.DotNet.FieldAttributes.Assembly;
-                            fieldContainsDecryptedArray.IsInitOnly = true;
-                            fieldContainsDecryptedArray.HasFieldRVA = true;
-                            fieldContainsDecryptedArray.InitialValue = CastToByteArray(decryptedArray);
                             privateImplementationDetails.Fields.Add(fieldContainsDecryptedArray);
                             module.UpdateRowId(fieldContainsDecryptedArray);
                             encryptedArrayDataInstruction.Operand = fieldContainsDecryptedArray;
@@ -121,7 +225,7 @@ namespace BabelDeobfuscator
             }
         }
 
-        void DecryptConstant(ModuleDefMD module, Assembly assembly)
+        void DecryptConstant(Assembly assembly)
         {
             do
             {
@@ -182,12 +286,16 @@ namespace BabelDeobfuscator
                 {
                     parameterInstruction.GetOperand()
                 });
+                if (!obfuscatorGeneratedMembers.Contains(decryptorMethod))
+                    obfuscatorGeneratedMembers.Add(decryptorMethod);
+                if (!obfuscatorGeneratedMembers.Contains(decryptorMethod.DeclaringType))
+                    obfuscatorGeneratedMembers.Add(decryptorMethod.DeclaringType);
                 return true;
             }
-            else if (decryptorMethod.ReturnType.ToString() == "System.Array" && decryptorMethod.Parameters.Count == 1 && decryptorMethod.Parameters[0].Type.ToString() == "System.Byte[]")
-            {
-                //throw new NotSupportedException($"Array encryption is not supported!");
-            }
+            //else if (decryptorMethod.ReturnType.ToString() == "System.Array" && decryptorMethod.Parameters.Count == 1 && decryptorMethod.Parameters[0].Type.ToString() == "System.Byte[]")
+            //{
+            //    throw new NotSupportedException($"Array encryption is not supported!");
+            //}
             return false;
         }
 
@@ -208,6 +316,10 @@ namespace BabelDeobfuscator
                 {
                     encryptedArrayDataField.InitialValue
                 });
+                if (!obfuscatorGeneratedMembers.Contains(decryptorMethod))
+                    obfuscatorGeneratedMembers.Add(decryptorMethod);
+                if (!obfuscatorGeneratedMembers.Contains(decryptorMethod.DeclaringType))
+                    obfuscatorGeneratedMembers.Add(decryptorMethod.DeclaringType);
                 return true;
             }
             return false;
@@ -270,11 +382,11 @@ namespace BabelDeobfuscator
                 {
                     try
                     {
-                        result.Add(BitConverter.GetBytes((sbyte)array.GetValue(i))[0]);
+                        result.Add((byte)(sbyte)array.GetValue(i));
                     }
                     catch (InvalidCastException)
                     {
-                        result.Add(BitConverter.GetBytes((byte)array.GetValue(i))[0]);
+                        result.Add((byte)array.GetValue(i));
                     }
                 }
                 else if (sizeOfElementType == 2)

@@ -30,8 +30,15 @@ namespace BabelDeobfuscator
             else
                 foreach (string arg in args)
                 {
-                    Deobfuscate(arg);
+                    if ((arg.StartsWith("-") || arg.StartsWith("--") || arg.StartsWith("/")) && (arg[arg.Length - 1] == 'V' || arg[arg.Length - 1] == 'v'))
+                        Logger.isVerbose = true;
                 }
+            foreach (string arg in args)
+            {
+                if ((arg.StartsWith("-") || arg.StartsWith("--") || arg.StartsWith("/")) && (arg[arg.Length - 1] == 'V' || arg[arg.Length - 1] == 'v'))
+                    continue;
+                Deobfuscate(arg);
+            }
             system();
         }
 
@@ -72,8 +79,16 @@ namespace BabelDeobfuscator
             ModuleWriterOptions moduleWriterOptions = new ModuleWriterOptions(module);
             string path = Path.GetDirectoryName(filePath) + "\\" + Path.GetFileNameWithoutExtension(filePath) + "-Deobfuscated" + Path.GetExtension(filePath);
             moduleWriterOptions.MetadataLogger = new Logger();
-            moduleWriterOptions.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
-            module.Write(path, moduleWriterOptions);
+            try
+            {
+                module.Write(path, moduleWriterOptions);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogException(ex);
+                moduleWriterOptions.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
+                module.Write(path, moduleWriterOptions);
+            }
             Logger.LogInfo("Output file: " + path);
         }
     }

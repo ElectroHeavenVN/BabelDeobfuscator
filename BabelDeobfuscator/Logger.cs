@@ -1,5 +1,7 @@
 ﻿using dnlib.DotNet;
 using System;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace BabelDeobfuscator
 {
@@ -15,7 +17,7 @@ namespace BabelDeobfuscator
             {
                 oldColor = Console.ForegroundColor;
                 Console.ForegroundColor = ConsoleColor.White;
-                Console.WriteLine("[V] " + content);
+                Console.WriteLine("[V] " + EscapeString(content));
                 Console.ForegroundColor = oldColor;
             }
         }
@@ -24,7 +26,7 @@ namespace BabelDeobfuscator
         {
             oldColor = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine("[I] " + content);
+            Console.WriteLine("[I] " + EscapeString(content));
             Console.ForegroundColor = oldColor;
         }
 
@@ -32,7 +34,7 @@ namespace BabelDeobfuscator
         {
             oldColor = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("![W] " + content);
+            Console.WriteLine("![W] " + EscapeString(content));
             Console.ForegroundColor = oldColor;
         }
 
@@ -40,7 +42,7 @@ namespace BabelDeobfuscator
         {
             oldColor = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("![E] " + content);
+            Console.WriteLine("![E] " + EscapeString(content));
             Console.ForegroundColor = oldColor;
         }
 
@@ -55,15 +57,26 @@ namespace BabelDeobfuscator
         static void LogException(Exception content, bool hasInnerException)
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.Write($"{(hasInnerException ? " ---> " : "![Ex] ")}{content.GetType()}: {content.Message}{Environment.NewLine}");
+            Console.Write($"{(hasInnerException ? " ---> " : "![Ex] ")}{EscapeString(content.GetType().ToString())}: {EscapeString(content.Message)}{Environment.NewLine}");
             if (content.InnerException != null)
                 LogException(content.InnerException, true);
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write(content.StackTrace);
+            Console.Write(EscapeString(content.StackTrace));
             Console.ForegroundColor = ConsoleColor.Red;
             Console.Write((content.InnerException == null ? "" : Environment.NewLine + "   --- End of inner exception stack trace ---") + Environment.NewLine);
         }
 
+        internal static string EscapeString(string str)
+        {
+            string result = "";
+            foreach (char c in str)
+            {
+                if (c < 32 || c > 126)
+                    result += "\\u" + Convert.ToString(c, 16).PadLeft(4, '0').ToUpper();
+                else result += c;
+            }
+            return result;
+        }
         public void Log(object sender, LoggerEvent loggerEvent, string format, params object[] args)
         {
             switch (loggerEvent)
