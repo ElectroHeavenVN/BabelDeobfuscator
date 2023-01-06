@@ -15,6 +15,7 @@ namespace BabelDeobfuscator
         static void Main(string[] args)
         {
             string filePath;
+            Logger.Log("Babel Deobfuscator v1.0.0 by ElectroHeavenVN", ConsoleColor.Green);
             if (args.Length == 0)
             {
                 Logger.LogInfo("Use -v / --v / /v to turn on verbose mode.");

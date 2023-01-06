@@ -1,6 +1,7 @@
 ﻿using dnlib.DotNet;
 using System;
 using System.Globalization;
+using System.Net.Mime;
 using System.Text.RegularExpressions;
 
 namespace BabelDeobfuscator
@@ -10,6 +11,17 @@ namespace BabelDeobfuscator
         internal static bool isVerbose;
 
         internal static ConsoleColor oldColor;
+
+        internal static void Log(string content, ConsoleColor consoleColor = ConsoleColor.White, bool isWriteLine = true)
+        {
+            oldColor = Console.ForegroundColor;
+            Console.ForegroundColor = consoleColor;
+            if (isWriteLine)
+                Console.WriteLine(content);
+            else
+                Console.Write(content);
+            Console.ForegroundColor = oldColor;
+        }
 
         internal static void LogVerbose(string content)
         {
