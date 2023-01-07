@@ -1,5 +1,5 @@
 # BabelDeobfuscator
-Deobfuscator for Babel Obfuscator, tested on Babel v9.9.4.0
+Deobfuscator for [Babel Obfuscator](https://www.babelfor.net/), tested on Babel v9.9.4.0
 # Usage
 Run `BabelDeobfuscator.exe` from the command line or drag and drop the obfuscated file to `BabelDeobfuscator.exe`. To turn on verbose log, use `-v` / `--v` or `/v`.
 # Features
