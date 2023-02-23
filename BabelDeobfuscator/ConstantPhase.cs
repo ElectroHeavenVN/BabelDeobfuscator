@@ -242,35 +242,46 @@ namespace BabelDeobfuscator
                         TypeDef type = types.ElementAt(i);
                         foreach (MethodDef method in type.Methods)
                         {
-                            if (!method.HasBody || !method.Body.HasInstructions)
-                                continue;
-                            if (isProxyIntSwitch(method))
-                                continue;
-                            method.Body.SimplifyBranches();
-                            method.Body.SimplifyMacros(method.Parameters);
-                            for (int j = method.Body.Instructions.Count - 1; j >= 1; j--)
+                            try
                             {
-                                if (method.Body.Instructions[j].OpCode == OpCodes.Call && method.Body.Instructions[j].Operand is MethodDef)
+                                if (!method.HasBody || !method.Body.HasInstructions)
+                                    continue;
+                                if (isProxyIntSwitch(method))
+                                    continue;
+                                method.Body.SimplifyBranches();
+                                method.Body.SimplifyMacros(method.Parameters);
+                                for (int j = method.Body.Instructions.Count - 1; j >= 1; j--)
                                 {
-                                    MethodDef decryptorMethod = method.Body.Instructions[j].Operand as MethodDef;
-                                    Instruction parameterInstruction = method.Body.Instructions[j - 1];
-                                    if (GetProxiedConstant(assembly, decryptorMethod, parameterInstruction, out object decryptedConstant) || DecryptConstant(assembly, decryptorMethod, parameterInstruction, out decryptedConstant))
+                                    MethodDef decryptorMethod = null;
+                                    try
                                     {
-                                        parameterInstruction.OpCode = GetOpcode(decryptedConstant);
-                                        parameterInstruction.Operand = decryptedConstant;
-                                        method.Body.Instructions.RemoveAt(j);
-                                        decryptedConstantsCount++;
+                                        if (method.Body.Instructions[j].OpCode == OpCodes.Call && method.Body.Instructions[j].Operand is MethodDef)
+                                        {
+                                            decryptorMethod = method.Body.Instructions[j].Operand as MethodDef;
+                                            Instruction parameterInstruction = method.Body.Instructions[j - 1];
+                                            if (GetProxiedConstant(assembly, decryptorMethod, parameterInstruction, out object decryptedConstant) || DecryptConstant(assembly, decryptorMethod, parameterInstruction, out decryptedConstant))
+                                            {
+                                                parameterInstruction.OpCode = GetOpcode(decryptedConstant);
+                                                parameterInstruction.Operand = decryptedConstant;
+                                                method.Body.Instructions.RemoveAt(j);
+                                                decryptedConstantsCount++;
+                                            }
+                                        }
+                                    }
+                                    catch (Exception ex) 
+                                    {
+                                        if (decryptorMethod != null && ex is ArgumentException)
+                                            obfuscatorGeneratedMembers.Remove(decryptorMethod);
+                                        Logger.LogException(ex);
                                     }
                                 }
                             }
+                            catch (Exception ex) { Logger.LogException(ex); }
                             method.Body.OptimizeBranches();
                             method.Body.OptimizeMacros();
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogException(ex);
-                    }
+                    catch (Exception ex) { Logger.LogException(ex); }
                 }
             }
             while (decryptedConstantsCount != 0);
